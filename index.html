@@ -7979,6 +7979,7 @@ let results = {};       // { qid: 'correct' | 'wrong' }
 let submittedIds = new Set();
 let wrongSet = new Set();   // 错题本 - question IDs answered wrong
 let starredSet = new Set(); // 收藏题 - manually bookmarked IDs
+let sessionSubmitted = new Set(); // 错题本/收藏题模式中本次提交的题目
 
 // ===== 本地存储 =====
 function saveState() {
@@ -8021,6 +8022,14 @@ function getFilteredQuestions() {
     list = list.filter(q => starredSet.has(q.id));
   }
   return list;
+}
+
+// 错题本/收藏题模式下视为未作答，可重新做题
+function isSubmitted(qid) {
+  if (currentView === 'wrongbook' || currentView === 'starred') {
+    return sessionSubmitted.has(qid);
+  }
+  return submittedIds.has(qid);
 }
 
 function getCurrentQ() {
@@ -8125,7 +8134,7 @@ function render() {
     }
 
     // If submitted, show correct/wrong
-    if (submittedIds.has(q.id)) {
+    if (isSubmitted(q.id)) {
       const correctAnswer = allAnswers[q.id];
       let isCorrectOption = false;
       if (q.type === 'single') {
@@ -8159,7 +8168,7 @@ function render() {
 
   // Result box
   const resultBox = document.getElementById('resultBox');
-  if (submittedIds.has(q.id)) {
+  if (isSubmitted(q.id)) {
     const r = results[q.id];
     resultBox.className = 'result-box show ' + r;
     const correctAnswer = allAnswers[q.id];
@@ -8180,7 +8189,7 @@ function render() {
 
   // Submit button state
   const submitBtn = document.getElementById('submitBtn');
-  if (submittedIds.has(q.id)) {
+  if (isSubmitted(q.id)) {
     submitBtn.textContent = '✓ 已作答';
     submitBtn.disabled = true;
   } else {
@@ -8220,7 +8229,7 @@ function render() {
 
 function selectOption(label) {
   const q = getCurrentQ();
-  if (!q || submittedIds.has(q.id)) return;
+  if (!q || isSubmitted(q.id)) return;
 
   if (q.type === 'single') {
     userAnswers[q.id] = label;
@@ -8243,7 +8252,7 @@ function selectOption(label) {
 
 function submitAnswer() {
   const q = getCurrentQ();
-  if (!q || submittedIds.has(q.id)) return;
+  if (!q || isSubmitted(q.id)) return;
 
   const answer = userAnswers[q.id];
   if (!answer) return;
@@ -8261,6 +8270,11 @@ function submitAnswer() {
   }
   submittedIds.add(q.id);
 
+  // 错题本/收藏题模式记录此次提交
+  if (currentView === 'wrongbook' || currentView === 'starred') {
+    sessionSubmitted.add(q.id);
+  }
+
   // 错题本：答错的自动加入
   if (results[q.id] === 'wrong') {
     wrongSet.add(q.id);
@@ -8277,6 +8291,10 @@ function submitAnswer() {
 function nextQuestion() {
   const list = getFilteredQuestions();
   if (currentIndex < list.length - 1) {
+    if (currentView === 'wrongbook' || currentView === 'starred') {
+      const q = list[currentIndex];
+      sessionSubmitted.delete(q.id);
+    }
     currentIndex++;
     render();
   }
@@ -8284,6 +8302,11 @@ function nextQuestion() {
 
 function prevQuestion() {
   if (currentIndex > 0) {
+    if (currentView === 'wrongbook' || currentView === 'starred') {
+      const list = getFilteredQuestions();
+      const q = list[currentIndex];
+      sessionSubmitted.delete(q.id);
+    }
     currentIndex--;
     render();
   }
@@ -8318,6 +8341,7 @@ function switchView(view) {
     el.classList.toggle('active', el.dataset.view === view);
   });
   currentIndex = 0;
+  sessionSubmitted.clear();
   saveState();
   render();
 }
@@ -8360,6 +8384,10 @@ function hideGrid() {
 }
 
 function jumpTo(index) {
+  if (currentView === 'wrongbook' || currentView === 'starred') {
+    const list = getFilteredQuestions();
+    sessionSubmitted.delete(list[currentIndex].id);
+  }
   currentIndex = index;
   hideGrid();
   render();
@@ -8431,7 +8459,7 @@ render();
 </script>
 <div class="footer">
   📚 马原期末复习 · 答题练习程序<br>
-  有任何问题欢迎联系作者：
+  如有问题或建议，欢迎投稿作者邮箱：
   <a class="email-link" href="mailto:2622157032@qq.com">2622157032@qq.com</a>
 </div>
 </body>
