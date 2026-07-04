@@ -8224,6 +8224,26 @@ function render() {
     clearBtn.style.display = 'none';
   }
 
+  // 重做按钮（错题本/收藏题模式，提交后显示）
+  let redoBtn = document.getElementById('redoBtn');
+  if ((currentView === 'wrongbook' || currentView === 'starred') && sessionSubmitted.has(q.id)) {
+    if (!redoBtn) {
+      redoBtn = document.createElement('button');
+      redoBtn.id = 'redoBtn';
+      redoBtn.className = 'btn btn-outline btn-sm';
+      redoBtn.onclick = function() {
+        sessionSubmitted.delete(q.id);
+        delete userAnswers[q.id];
+        render();
+      };
+      actionsDiv.appendChild(redoBtn);
+    }
+    redoBtn.textContent = '🔄 重做';
+    redoBtn.style.display = '';
+  } else if (redoBtn) {
+    redoBtn.style.display = 'none';
+  }
+
   updateGrid();
 }
 
