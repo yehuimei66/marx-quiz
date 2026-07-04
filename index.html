@@ -282,6 +282,87 @@
   .grid-nums .gnum.answered { background: #eafaf1; border-color: #27ae60; color: #27ae60; }
   .grid-nums .gnum.wrong-q { background: #fdedec; border-color: #e74c3c; color: #e74c3c; }
 
+  /* View mode bar */
+  .view-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .view-btn {
+    flex: 1;
+    padding: 8px 6px;
+    border: 2px solid #ddd;
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all .2s;
+    text-align: center;
+  }
+  .view-btn.active {
+    border-color: #c0392b;
+    background: #fff5f3;
+    color: #c0392b;
+  }
+  .view-btn .badge {
+    display: inline-block;
+    background: #eee;
+    color: #666;
+    border-radius: 10px;
+    padding: 0 7px;
+    font-size: 11px;
+    margin-left: 3px;
+  }
+  .view-btn.active .badge { background: #c0392b; color: #fff; }
+
+  /* Star button */
+  .star-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 0 4px;
+    transition: transform .2s;
+    line-height: 1;
+  }
+  .star-btn:hover { transform: scale(1.2); }
+  .star-btn.starred { color: #f39c12; }
+  .star-btn:not(.starred) { color: #ccc; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-size: 15px; }
+
+  /* Author / Footer */
+  .footer {
+    text-align: center;
+    padding: 20px;
+    margin-top: 20px;
+    color: #aaa;
+    font-size: 13px;
+    border-top: 1px solid #eee;
+  }
+  .footer a {
+    color: #c0392b;
+    text-decoration: none;
+  }
+  .footer a:hover { text-decoration: underline; }
+  .footer .email-link { font-weight: 600; }
+
+  /* Clear button */
+  .btn-clear {
+    background: #fff;
+    color: #e74c3c;
+    border: 2px solid #e74c3c;
+  }
+  .btn-clear:hover { background: #fdedec; }
+
   /* Keyboard hint */
   .kb-hint {
     text-align: center;
@@ -313,6 +394,7 @@
       <span>✅ 正确: <b id="correctCount">0</b></span>
       <span>❌ 错误: <b id="wrongCount">0</b></span>
       <span>📊 <b id="doneCount">0</b>/300</span>
+      <span title="进度已自动保存到浏览器">💾</span>
     </div>
   </div>
 
@@ -326,7 +408,18 @@
     </div>
   </div>
 
-  <!-- Progress -->
+  <!-- View mode bar -->
+  <div class="view-bar">
+    <div class="view-btn active" data-view="normal" onclick="switchView('normal')">
+      📖 全部题目
+    </div>
+    <div class="view-btn" data-view="wrongbook" onclick="switchView('wrongbook')">
+      ❌ 错题本 <span class="badge" id="wrongCountBadge">0</span>
+    </div>
+    <div class="view-btn" data-view="starred" onclick="switchView('starred')">
+      ⭐ 收藏题 <span class="badge" id="starredCountBadge">0</span>
+    </div>
+  </div>
   <div class="progress-area">
     <div class="progress-text">
       <span id="progressLabel">第 1 题</span>
@@ -339,7 +432,10 @@
   <div class="q-card" id="qCard">
     <div class="q-header">
       <span class="q-number" id="qNumber">第 1 题</span>
-      <span class="q-type-tag" id="qTypeTag">单选题</span>
+      <div>
+        <button class="star-btn" id="starBtn" onclick="toggleStar()" title="收藏此题">☆</button>
+        <span class="q-type-tag" id="qTypeTag">单选题</span>
+      </div>
     </div>
     <div class="q-text" id="qText"></div>
     <div class="options" id="optionsContainer"></div>
@@ -7573,13 +7669,55 @@ const allAnswers = {
 };
 
 let currentMode = 'single';
+let currentView = 'normal';  // 'normal' | 'wrongbook' | 'starred'
 let currentIndex = 0;
 let userAnswers = {};   // { qid: 'A' or ['A','B'] }
 let results = {};       // { qid: 'correct' | 'wrong' }
 let submittedIds = new Set();
+let wrongSet = new Set();   // 错题本 - question IDs answered wrong
+let starredSet = new Set(); // 收藏题 - manually bookmarked IDs
+
+// ===== 本地存储 =====
+function saveState() {
+  try {
+    const state = {
+      currentMode,
+      currentView,
+      currentIndex,
+      userAnswers,
+      results,
+      submittedIds: [...submittedIds],
+      wrongSet: [...wrongSet],
+      starredSet: [...starredSet]
+    };
+    localStorage.setItem('marx_quiz_state', JSON.stringify(state));
+  } catch(e) { /* ignore storage errors */ }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem('marx_quiz_state');
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    if (state.currentMode) currentMode = state.currentMode;
+    if (state.currentView) currentView = state.currentView;
+    if (typeof state.currentIndex === 'number') currentIndex = state.currentIndex;
+    if (state.userAnswers) userAnswers = state.userAnswers;
+    if (state.results) results = state.results;
+    if (state.submittedIds) submittedIds = new Set(state.submittedIds);
+    if (state.wrongSet) wrongSet = new Set(state.wrongSet);
+    if (state.starredSet) starredSet = new Set(state.starredSet);
+  } catch(e) { /* ignore load errors */ }
+}
 
 function getFilteredQuestions() {
-  return allQuestions.filter(q => q.type === currentMode);
+  let list = allQuestions.filter(q => q.type === currentMode);
+  if (currentView === 'wrongbook') {
+    list = list.filter(q => wrongSet.has(q.id));
+  } else if (currentView === 'starred') {
+    list = list.filter(q => starredSet.has(q.id));
+  }
+  return list;
 }
 
 function getCurrentQ() {
@@ -7590,9 +7728,6 @@ function getCurrentQ() {
 // ===== RENDER =====
 function render() {
   const list = getFilteredQuestions();
-  if (list.length === 0) return;
-  const q = list[currentIndex];
-  if (!q) return;
 
   // Update header stats
   let correct = 0, wrong = 0;
@@ -7603,6 +7738,42 @@ function render() {
   document.getElementById('correctCount').textContent = correct;
   document.getElementById('wrongCount').textContent = wrong;
   document.getElementById('doneCount').textContent = correct + wrong;
+  document.getElementById('wrongCountBadge').textContent = wrongSet.size;
+  document.getElementById('starredCountBadge').textContent = starredSet.size;
+
+  // Empty state for wrongbook/starred
+  if (list.length === 0) {
+    document.getElementById('progressLabel').textContent = currentView === 'wrongbook' ? '错题本 - 暂无错题 🎉' : currentView === 'starred' ? '收藏题 - 暂无收藏' : '暂无题目';
+    document.getElementById('progressPct').textContent = '0%';
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('qNumber').textContent = '';
+    document.getElementById('qText').innerHTML = '';
+    document.getElementById('optionsContainer').innerHTML = '';
+    document.getElementById('resultBox').className = 'result-box';
+    document.getElementById('resultBox').innerHTML = '';
+    document.getElementById('submitBtn').textContent = '✓ 确认答案';
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('starBtn').style.display = 'none';
+    updateGrid();
+    // Show empty state message
+    const container = document.getElementById('optionsContainer');
+    const msg = document.createElement('div');
+    msg.className = 'empty-state';
+    if (currentView === 'wrongbook') {
+      msg.innerHTML = '<div class="icon">🎉</div><p>错题本为空！所有题目都答对了。</p>';
+    } else if (currentView === 'starred') {
+      msg.innerHTML = '<div class="icon">⭐</div><p>还没有收藏题目，做题时点击题目旁的星标即可收藏。</p>';
+    }
+    container.appendChild(msg);
+    return;
+  }
+
+  const q = list[currentIndex];
+  if (!q) {
+    currentIndex = 0;
+    render();
+    return;
+  }
 
   // Progress
   const total = list.length;
@@ -7613,6 +7784,16 @@ function render() {
 
   // Question header
   document.getElementById('qNumber').textContent = `第 ${q.id} 题`;
+  // Star button
+  const starBtn = document.getElementById('starBtn');
+  starBtn.style.display = 'inline';
+  if (starredSet.has(q.id)) {
+    starBtn.textContent = '★';
+    starBtn.classList.add('starred');
+  } else {
+    starBtn.textContent = '☆';
+    starBtn.classList.remove('starred');
+  }
   const tag = document.getElementById('qTypeTag');
   tag.textContent = q.type === 'single' ? '单选题' : '多选题';
   tag.className = 'q-type-tag' + (q.type === 'multiple' ? ' multi' : '');
@@ -7699,6 +7880,33 @@ function render() {
     submitBtn.disabled = !userAnswers[q.id] || (Array.isArray(userAnswers[q.id]) && userAnswers[q.id].length === 0);
   }
 
+  // 记忆模式提示（已自动保存）
+  const actionsDiv = document.getElementById('actionsContainer');
+  let clearBtn = document.getElementById('viewClearBtn');
+  if (currentView === 'wrongbook' && wrongSet.size > 0) {
+    if (!clearBtn) {
+      clearBtn = document.createElement('button');
+      clearBtn.id = 'viewClearBtn';
+      clearBtn.className = 'btn btn-clear btn-sm';
+      clearBtn.onclick = clearWrongBook;
+      actionsDiv.appendChild(clearBtn);
+    }
+    clearBtn.textContent = '🗑 清空错题本';
+    clearBtn.style.display = '';
+  } else if (currentView === 'starred' && starredSet.size > 0) {
+    if (!clearBtn) {
+      clearBtn = document.createElement('button');
+      clearBtn.id = 'viewClearBtn';
+      clearBtn.className = 'btn btn-clear btn-sm';
+      clearBtn.onclick = clearStarred;
+      actionsDiv.appendChild(clearBtn);
+    }
+    clearBtn.textContent = '🗑 清空收藏';
+    clearBtn.style.display = '';
+  } else if (clearBtn) {
+    clearBtn.style.display = 'none';
+  }
+
   updateGrid();
 }
 
@@ -7744,6 +7952,16 @@ function submitAnswer() {
     results[q.id] = sorted === correctSorted ? 'correct' : 'wrong';
   }
   submittedIds.add(q.id);
+
+  // 错题本：答错的自动加入
+  if (results[q.id] === 'wrong') {
+    wrongSet.add(q.id);
+  } else {
+    // 答对的如果之前在错题本中，移除
+    wrongSet.delete(q.id);
+  }
+
+  saveState();
   render();
 }
 
@@ -7769,7 +7987,56 @@ function switchMode(mode) {
     el.classList.toggle('active', el.dataset.mode === mode);
   });
   currentIndex = 0;
+  saveState();
   render();
+}
+
+// ===== 收藏 / 错题本 =====
+function toggleStar() {
+  const q = getCurrentQ();
+  if (!q) return;
+  if (starredSet.has(q.id)) {
+    starredSet.delete(q.id);
+  } else {
+    starredSet.add(q.id);
+  }
+  saveState();
+  render();
+}
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.view-btn').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  currentIndex = 0;
+  saveState();
+  render();
+}
+
+function clearWrongBook() {
+  if (wrongSet.size === 0) return;
+  if (confirm('确定清空错题本吗？')) {
+    wrongSet.clear();
+    // 同时清除所有错题的结果记录
+    Object.keys(results).forEach(id => {
+      if (results[id] === 'wrong') {
+        delete results[id];
+        submittedIds.delete(parseInt(id));
+      }
+    });
+    saveState();
+    render();
+  }
+}
+
+function clearStarred() {
+  if (starredSet.size === 0) return;
+  if (confirm('确定清空所有收藏吗？')) {
+    starredSet.clear();
+    saveState();
+    render();
+  }
 }
 
 // ===== GRID =====
@@ -7839,6 +8106,14 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ===== INIT =====
+// Load saved state first
+loadState();
+
+// Set initial view button state
+document.querySelectorAll('.view-btn').forEach(el => {
+  el.classList.toggle('active', el.dataset.view === currentView);
+});
+
 // Handle overlay clicks
 document.getElementById('gridOverlay').addEventListener('click', (e) => {
   if (e.target === document.getElementById('gridOverlay')) hideGrid();
@@ -7846,5 +8121,10 @@ document.getElementById('gridOverlay').addEventListener('click', (e) => {
 
 render();
 </script>
+<div class="footer">
+  📚 马原期末复习 · 答题练习程序<br>
+  有任何问题欢迎联系作者：
+  <a class="email-link" href="mailto:2622157032@qq.com">2622157032@qq.com</a>
+</div>
 </body>
 </html>
