@@ -190,21 +190,28 @@
   /* Action buttons */
   .actions {
     display: flex;
-    gap: 10px;
+    flex-direction: column;
+    gap: 8px;
     margin-top: 16px;
+  }
+  .actions-row {
+    display: flex;
+    gap: 8px;
     flex-wrap: wrap;
   }
-  .btn {
-    padding: 10px 22px;
+  .actions-row.center { justify-content: center; }
+  .actions .btn {
+    padding: 8px 16px;
     border: none;
     border-radius: 10px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: all .2s;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
+    white-space: nowrap;
   }
   .btn:active { transform: scale(.97); }
   .btn-primary { background: #c0392b; color: #fff; }
@@ -380,7 +387,8 @@
     .q-card { padding: 16px 18px; }
     .q-text { font-size: 15px; }
     .actions { gap: 6px; }
-    .btn { padding: 8px 14px; font-size: 13px; flex: 1; justify-content: center; }
+    .actions .btn { padding: 6px 10px; font-size: 12px; }
+    .actions-row { gap: 5px; }
   }
 </style>
 </head>
@@ -441,10 +449,14 @@
     <div class="options" id="optionsContainer"></div>
     <div class="result-box" id="resultBox"></div>
     <div class="actions" id="actionsContainer">
-      <button class="btn btn-outline" onclick="prevQuestion()">◀ 上一题</button>
-      <button class="btn btn-outline" onclick="showGrid()">📋 题号</button>
-      <button class="btn btn-primary" id="submitBtn" onclick="submitAnswer()">✓ 确认答案</button>
-      <button class="btn btn-outline" onclick="nextQuestion()">下一题 ▶</button>
+      <div class="actions-row center" id="actionRow1">
+        <button class="btn btn-primary" id="submitBtn" onclick="submitAnswer()">✓ 确认答案</button>
+      </div>
+      <div class="actions-row center" id="actionRow2">
+        <button class="btn btn-outline" onclick="prevQuestion()">◀ 上一题</button>
+        <button class="btn btn-outline" onclick="showGrid()">📋 题号</button>
+        <button class="btn btn-outline" onclick="nextQuestion()">下一题 ▶</button>
+      </div>
     </div>
     <div class="kb-hint">⌨️ 按 A/B/C/D 选择 · Enter 确认 · ← → 翻页</div>
   </div>
@@ -7980,6 +7992,8 @@ let submittedIds = new Set();
 let wrongSet = new Set();   // 错题本 - question IDs answered wrong
 let starredSet = new Set(); // 收藏题 - manually bookmarked IDs
 let sessionSubmitted = new Set(); // 错题本/收藏题模式中本次提交的题目
+let shuffledOrders = {}; // 打乱的选项顺序 { qid: [indices] }
+
 
 // ===== 本地存储 =====
 function saveState() {
@@ -7992,7 +8006,8 @@ function saveState() {
       results,
       submittedIds: [...submittedIds],
       wrongSet: [...wrongSet],
-      starredSet: [...starredSet]
+      starredSet: [...starredSet],
+      shuffledOrders
     };
     localStorage.setItem('marx_quiz_state', JSON.stringify(state));
   } catch(e) { /* ignore storage errors */ }
@@ -8011,6 +8026,7 @@ function loadState() {
     if (state.submittedIds) submittedIds = new Set(state.submittedIds);
     if (state.wrongSet) wrongSet = new Set(state.wrongSet);
     if (state.starredSet) starredSet = new Set(state.starredSet);
+    if (state.shuffledOrders) shuffledOrders = state.shuffledOrders;
   } catch(e) { /* ignore load errors */ }
 }
 
@@ -8022,6 +8038,15 @@ function getFilteredQuestions() {
     list = list.filter(q => starredSet.has(q.id));
   }
   return list;
+}
+
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 // 错题本/收藏题模式下视为未作答，可重新做题
@@ -8117,10 +8142,19 @@ function render() {
   // Options
   const container = document.getElementById('optionsContainer');
   container.innerHTML = '';
-  q.options.forEach((opt, idx) => {
+
+  // Determine option order (shuffled or original)
+  let optIndices = [0, 1, 2, 3];
+  if (shuffledOrders[q.id]) {
+    optIndices = shuffledOrders[q.id];
+  }
+
+  optIndices.forEach((origIdx) => {
+    const opt = q.options[origIdx];
     const div = document.createElement('div');
     div.className = 'option';
     div.dataset.label = opt.label;
+    div.dataset.origIdx = origIdx;
     div.onclick = () => selectOption(opt.label);
 
     // Check if this option is selected
@@ -8198,7 +8232,7 @@ function render() {
   }
 
   // 记忆模式提示（已自动保存）
-  const actionsDiv = document.getElementById('actionsContainer');
+  const actionsDiv = document.getElementById('actionRow1');
   let clearBtn = document.getElementById('viewClearBtn');
   if (currentView === 'wrongbook' && wrongSet.size > 0) {
     if (!clearBtn) {
@@ -8243,6 +8277,8 @@ function render() {
       }
       delete userAnswers[q.id];
       delete results[q.id];
+      // 打乱选项顺序
+      shuffledOrders[q.id] = shuffleArray([0, 1, 2, 3]);
       render();
     };
   } else {
@@ -8422,6 +8458,7 @@ function resetAllInView() {
   list.forEach(q => {
     delete userAnswers[q.id];
     delete results[q.id];
+    delete shuffledOrders[q.id];
     submittedIds.delete(q.id);
     sessionSubmitted.delete(q.id);
   });
