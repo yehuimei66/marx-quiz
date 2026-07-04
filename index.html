@@ -8224,24 +8224,49 @@ function render() {
     clearBtn.style.display = 'none';
   }
 
-  // 重做按钮（错题本/收藏题模式，提交后显示）
+  // 重做本题按钮（提交后显示）
   let redoBtn = document.getElementById('redoBtn');
-  if ((currentView === 'wrongbook' || currentView === 'starred') && sessionSubmitted.has(q.id)) {
+  if (isSubmitted(q.id)) {
     if (!redoBtn) {
       redoBtn = document.createElement('button');
       redoBtn.id = 'redoBtn';
       redoBtn.className = 'btn btn-outline btn-sm';
-      redoBtn.onclick = function() {
-        sessionSubmitted.delete(q.id);
-        delete userAnswers[q.id];
-        render();
-      };
       actionsDiv.appendChild(redoBtn);
     }
-    redoBtn.textContent = '🔄 重做';
+    redoBtn.textContent = '🔄 重做本题';
     redoBtn.style.display = '';
-  } else if (redoBtn) {
-    redoBtn.style.display = 'none';
+    redoBtn.onclick = function() {
+      if (currentView === 'wrongbook' || currentView === 'starred') {
+        sessionSubmitted.delete(q.id);
+      } else {
+        submittedIds.delete(q.id);
+      }
+      delete userAnswers[q.id];
+      delete results[q.id];
+      render();
+    };
+  } else {
+    if (redoBtn) redoBtn.style.display = 'none';
+  }
+
+  // 全部重做按钮（提交后显示）
+  let resetAllBtn = document.getElementById('resetAllBtn');
+  if (isSubmitted(q.id)) {
+    if (!resetAllBtn) {
+      resetAllBtn = document.createElement('button');
+      resetAllBtn.id = 'resetAllBtn';
+      resetAllBtn.className = 'btn btn-clear btn-sm';
+      resetAllBtn.textContent = '🔄 全部重做';
+      resetAllBtn.onclick = function() {
+        if (confirm('确定要重做当前模式下的全部题目吗？所有答题记录将被清除。')) {
+          resetAllInView();
+        }
+      };
+      actionsDiv.appendChild(resetAllBtn);
+    }
+    resetAllBtn.style.display = '';
+  } else if (resetAllBtn) {
+    resetAllBtn.style.display = 'none';
   }
 
   updateGrid();
@@ -8389,6 +8414,20 @@ function clearStarred() {
     saveState();
     render();
   }
+}
+
+
+function resetAllInView() {
+  const list = getFilteredQuestions();
+  list.forEach(q => {
+    delete userAnswers[q.id];
+    delete results[q.id];
+    submittedIds.delete(q.id);
+    sessionSubmitted.delete(q.id);
+  });
+  currentIndex = 0;
+  saveState();
+  render();
 }
 
 // ===== GRID =====
