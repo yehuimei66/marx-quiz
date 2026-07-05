@@ -427,6 +427,9 @@
     <div class="view-btn" data-view="starred" onclick="switchView('starred')">
       ⭐ 收藏题 <span class="badge" id="starredCountBadge">0</span>
     </div>
+    <div class="view-btn" data-view="random" id="randomBtn" onclick="startRandomQuiz()">
+      🎲 随机做题
+    </div>
   </div>
   <div class="progress-area">
     <div class="progress-text">
@@ -465,10 +468,25 @@
 <!-- Question grid overlay -->
 <div class="grid-overlay" id="gridOverlay">
   <div class="grid-panel">
-    <h3>📋 题号导航 <span style="font-size:13px;color:#888;font-weight:400;" id="gridModeLabel">(单选题)</span></h3>
+    <h3 id="gridPanelTitle">📋 题号导航 <span style="font-size:13px;color:#888;font-weight:400;" id="gridModeLabel">(单选题)</span></h3>
     <div class="grid-nums" id="gridNums"></div>
     <div style="margin-top:14px;text-align:right;">
       <button class="btn btn-primary btn-sm" onclick="hideGrid()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Random quiz dialog -->
+<div class="grid-overlay" id="randomDialog">
+  <div class="grid-panel" style="max-width:360px;text-align:center;">
+    <h3 style="margin-bottom:20px;">🎲 随机做题</h3>
+    <p style="font-size:14px;color:#666;margin-bottom:20px;">从全部300道题中随机抽取题目</p>
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button class="btn btn-primary" onclick="startRandomQuizWithCount(15)" style="flex:1;font-size:16px;padding:14px;">15 题</button>
+      <button class="btn btn-primary" onclick="startRandomQuizWithCount(30)" style="flex:1;font-size:16px;padding:14px;">30 题</button>
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn btn-outline btn-sm" onclick="hideRandomDialog()">取消</button>
     </div>
   </div>
 </div>
@@ -7993,6 +8011,9 @@ let wrongSet = new Set();   // 错题本 - question IDs answered wrong
 let starredSet = new Set(); // 收藏题 - manually bookmarked IDs
 let sessionSubmitted = new Set(); // 错题本/收藏题模式中本次提交的题目
 let shuffledOrders = {}; // 打乱的选项顺序 { qid: [indices] }
+let randomQuizIds = [];   // 随机做题模式下的题目ID列表
+let randomQuizCount = 0;  // 随机做题总数
+let randomQuizStarted = false; // 是否正在进行随机做题
 
 
 // ===== 本地存储 =====
@@ -8007,7 +8028,10 @@ function saveState() {
       submittedIds: [...submittedIds],
       wrongSet: [...wrongSet],
       starredSet: [...starredSet],
-      shuffledOrders
+      shuffledOrders,
+      randomQuizIds,
+      randomQuizCount,
+      randomQuizStarted
     };
     localStorage.setItem('marx_quiz_state', JSON.stringify(state));
   } catch(e) { /* ignore storage errors */ }
@@ -8027,10 +8051,17 @@ function loadState() {
     if (state.wrongSet) wrongSet = new Set(state.wrongSet);
     if (state.starredSet) starredSet = new Set(state.starredSet);
     if (state.shuffledOrders) shuffledOrders = state.shuffledOrders;
+    if (state.randomQuizIds) randomQuizIds = state.randomQuizIds;
+    if (state.randomQuizCount) randomQuizCount = state.randomQuizCount;
+    if (state.randomQuizStarted !== undefined) randomQuizStarted = state.randomQuizStarted;
   } catch(e) { /* ignore load errors */ }
 }
 
 function getFilteredQuestions() {
+  // 随机做题模式：从随机列表中按题型过滤
+  if (currentView === 'random' && randomQuizStarted) {
+    return allQuestions.filter(q => randomQuizIds.includes(q.id) && q.type === currentMode);
+  }
   let list = allQuestions.filter(q => q.type === currentMode);
   if (currentView === 'wrongbook') {
     list = list.filter(q => wrongSet.has(q.id));
@@ -8049,7 +8080,7 @@ function shuffleArray(arr) {
   return a;
 }
 
-// 错题本/收藏题模式下视为未作答，可重新做题
+// 错题本/收藏题/随机模式下视为未作答，可重新做题
 function isSubmitted(qid) {
   if (currentView === 'wrongbook' || currentView === 'starred') {
     return sessionSubmitted.has(qid);
@@ -8078,9 +8109,9 @@ function render() {
   document.getElementById('wrongCountBadge').textContent = wrongSet.size;
   document.getElementById('starredCountBadge').textContent = starredSet.size;
 
-  // Empty state for wrongbook/starred
+  // Empty state for wrongbook/starred/random
   if (list.length === 0) {
-    document.getElementById('progressLabel').textContent = currentView === 'wrongbook' ? '错题本 - 暂无错题 🎉' : currentView === 'starred' ? '收藏题 - 暂无收藏' : '暂无题目';
+    document.getElementById('progressLabel').textContent = currentView === 'wrongbook' ? '错题本 - 暂无错题 🎉' : currentView === 'starred' ? '收藏题 - 暂无收藏' : currentView === 'random' ? '随机做题已完成！' : '暂无题目';
     document.getElementById('progressPct').textContent = '0%';
     document.getElementById('progressFill').style.width = '0%';
     document.getElementById('qNumber').textContent = '';
@@ -8100,6 +8131,13 @@ function render() {
       msg.innerHTML = '<div class="icon">🎉</div><p>错题本为空！所有题目都答对了。</p>';
     } else if (currentView === 'starred') {
       msg.innerHTML = '<div class="icon">⭐</div><p>还没有收藏题目，做题时点击题目旁的星标即可收藏。</p>';
+    } else if (currentView === 'random') {
+      const r = getRandomQuizResults();
+      const pct = r.total > 0 ? Math.round(r.correct / r.total * 100) : 0;
+      msg.innerHTML = '<div class="icon">🏆</div><p>🎲 随机做题完成！</p>' +
+        '<p style="font-size:16px;margin-top:10px;">正确：' + r.correct + '/' + r.total + '（' + pct + '%）</p>' +
+        '<div style="margin-top:16px;"><button class="btn btn-primary btn-sm" onclick="showRandomResultDetail()">📊 查看详情</button>' +
+        ' <button class="btn btn-outline btn-sm" onclick="startRandomQuiz()">🔄 再来一次</button></div>';
     }
     container.appendChild(msg);
     return;
@@ -8294,6 +8332,14 @@ function render() {
       resetAllBtn.className = 'btn btn-clear btn-sm';
       resetAllBtn.textContent = '🔄 全部重做';
       resetAllBtn.onclick = function() {
+        if (currentView === 'random') {
+          if (confirm('确定要重新开始随机做题吗？')) {
+            randomQuizStarted = false;
+            randomQuizIds = [];
+            startRandomQuiz();
+          }
+          return;
+        }
         if (confirm('确定要重做当前模式下的全部题目吗？所有答题记录将被清除。')) {
           resetAllInView();
         }
@@ -8403,6 +8449,73 @@ function switchMode(mode) {
   render();
 }
 
+// ===== 随机做题 =====
+function startRandomQuiz() {
+  document.getElementById('randomDialog').classList.add('show');
+}
+
+function hideRandomDialog() {
+  document.getElementById('randomDialog').classList.remove('show');
+}
+
+function startRandomQuizWithCount(count) {
+  hideRandomDialog();
+  // 从全部300道题中随机抽取
+  const allIds = allQuestions.map(q => q.id);
+  const shuffled = shuffleArray(allIds);
+  randomQuizIds = shuffled.slice(0, count);
+  randomQuizCount = count;
+  randomQuizStarted = true;
+  currentView = 'random';
+  currentMode = 'single';
+  currentIndex = 0;
+  // 更新视图按钮状态
+  document.querySelectorAll('.view-btn').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === 'random');
+  });
+  document.querySelectorAll('.mode-btn').forEach(el => {
+    el.classList.toggle('active', el.dataset.mode === 'single');
+  });
+  saveState();
+  render();
+}
+
+// 随机模式下全部答完时的统计
+function getRandomQuizResults() {
+  let correct = 0, wrong = 0, total = 0;
+  const list = getFilteredQuestions();
+  list.forEach(q => {
+    if (results[q.id]) {
+      total++;
+      if (results[q.id] === 'correct') correct++;
+      else wrong++;
+    }
+  });
+  return { correct, wrong, total, all: list.length };
+}
+
+function showRandomResultDetail() {
+  const list = getFilteredQuestions();
+  let html = '<div style="max-height:60vh;overflow-y:auto;">';
+  let correct = 0, wrong = 0;
+  list.forEach((q, idx) => {
+    const r = results[q.id];
+    if (!r) return;
+    const icon = r === 'correct' ? '✅' : '❌';
+    if (r === 'correct') correct++; else wrong++;
+    const correctAnswer = allAnswers[q.id];
+    html += '<div style="padding:8px 0;border-bottom:1px solid #eee;text-align:left;font-size:13px;">' +
+      icon + ' <b>Q' + q.id + '</b> ' + q.question.substring(0, 40) + '...<br>' +
+      '<span style="color:#888;font-size:12px;">正确答案：' + correctAnswer + '</span></div>';
+  });
+  html += '</div>';
+  const pct = (correct + wrong) > 0 ? Math.round(correct / (correct + wrong) * 100) : 0;
+  const panel = document.getElementById('gridPanel');
+  document.getElementById('gridPanelTitle').textContent = '🏆 随机做题结果：' + correct + '/' + (correct + wrong) + '（' + pct + '%）';
+  document.getElementById('gridNums').innerHTML = html;
+  document.getElementById('gridOverlay').classList.add('show');
+}
+
 // ===== 收藏 / 错题本 =====
 function toggleStar() {
   const q = getCurrentQ();
@@ -8417,6 +8530,10 @@ function toggleStar() {
 }
 
 function switchView(view) {
+  if (view === 'random') {
+    startRandomQuiz();
+    return;
+  }
   currentView = view;
   document.querySelectorAll('.view-btn').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
@@ -8549,6 +8666,9 @@ document.querySelectorAll('.view-btn').forEach(el => {
 // Handle overlay clicks
 document.getElementById('gridOverlay').addEventListener('click', (e) => {
   if (e.target === document.getElementById('gridOverlay')) hideGrid();
+});
+document.getElementById('randomDialog').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('randomDialog')) hideRandomDialog();
 });
 
 render();
