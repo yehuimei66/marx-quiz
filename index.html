@@ -8575,7 +8575,7 @@ function resetAllInView() {
   list.forEach(q => {
     delete userAnswers[q.id];
     delete results[q.id];
-    delete shuffledOrders[q.id];
+    shuffledOrders[q.id] = shuffleArray([0, 1, 2, 3]);
     submittedIds.delete(q.id);
     sessionSubmitted.delete(q.id);
   });
