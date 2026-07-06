@@ -8080,6 +8080,20 @@ function shuffleArray(arr) {
   return a;
 }
 
+// 获取显示标签到原始标签的映射（乱序时使用）
+function getDisplayMap(qid) {
+  const order = shuffledOrders[qid];
+  if (!order) return null;
+  const q = allQuestions.find(x => x.id === qid);
+  if (!q) return null;
+  const map = {};
+  const labels = ['A', 'B', 'C', 'D'];
+  order.forEach((origIdx, posIdx) => {
+    map[labels[posIdx]] = q.options[origIdx].label;
+  });
+  return map;
+}
+
 // 错题本/收藏题/随机模式下视为未作答，可重新做题
 function isSubmitted(qid) {
   if (currentView === 'wrongbook' || currentView === 'starred') {
@@ -8187,15 +8201,18 @@ function render() {
     optIndices = shuffledOrders[q.id];
   }
 
-  optIndices.forEach((origIdx) => {
+  const displayLabels = ['A', 'B', 'C', 'D'];
+  optIndices.forEach((origIdx, posIdx) => {
     const opt = q.options[origIdx];
+    const displayLabel = displayLabels[posIdx];
     const div = document.createElement('div');
     div.className = 'option';
-    div.dataset.label = opt.label;
+    div.dataset.displayLabel = displayLabel;
+    div.dataset.origLabel = opt.label;
     div.dataset.origIdx = origIdx;
-    div.onclick = () => selectOption(opt.label);
+    div.onclick = () => selectOption(displayLabel);
 
-    // Check if this option is selected
+    // Check if this option is selected (compare with original label)
     const answered = userAnswers[q.id];
     if (answered) {
       if (q.type === 'single' && answered === opt.label) {
@@ -8232,7 +8249,7 @@ function render() {
     }
 
     div.innerHTML = `
-      <span class="option-label">${opt.label}</span>
+      <span class="option-label">${displayLabel}</span>
       <span class="option-text">${opt.text}</span>
     `;
     container.appendChild(div);
@@ -8354,24 +8371,28 @@ function render() {
   updateGrid();
 }
 
-function selectOption(label) {
+function selectOption(displayLabel) {
   const q = getCurrentQ();
   if (!q || isSubmitted(q.id)) return;
 
+  // 如果有乱序映射，将显示标签转为原始标签
+  const map = getDisplayMap(q.id);
+  const originalLabel = map ? map[displayLabel] : displayLabel;
+
   if (q.type === 'single') {
-    userAnswers[q.id] = label;
+    userAnswers[q.id] = originalLabel;
   } else {
     if (!userAnswers[q.id] || !Array.isArray(userAnswers[q.id])) {
       userAnswers[q.id] = [];
     }
-    const idx = userAnswers[q.id].indexOf(label);
+    const idx = userAnswers[q.id].indexOf(originalLabel);
     if (idx >= 0) {
       userAnswers[q.id].splice(idx, 1);
       if (userAnswers[q.id].length === 0) {
         delete userAnswers[q.id];
       }
     } else {
-      userAnswers[q.id].push(label);
+      userAnswers[q.id].push(originalLabel);
     }
   }
   render();
